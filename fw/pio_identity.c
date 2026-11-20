@@ -25,6 +25,7 @@
 
 extern const uint8_t ds4_device_descriptor[18];
 extern const uint8_t ds4_configuration_descriptor[41];
+extern const string_descriptor_t *pio_string_table(void);
 
 #define IDENT_MAGIC 0x49444550u /* 'IDEN'+2, bumped: identity table changed */
 

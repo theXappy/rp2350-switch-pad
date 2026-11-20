@@ -1,0 +1,13 @@
+# Grant this machine's logged-in user access to the rp2350-switch-pad
+# "Pad Bridge Link" (the PIO-USB HID device the PC drives). Without this the
+# link's /dev/hidraw* is root-only and drive_switch.py cannot open it.
+#
+# Install:
+#   sudo cp linux/99-switch-pad.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# then replug the PIO (USB-A) cable.
+#
+# 2E8A:400B = the Pad Bridge Link. (20D6:A713, the PowerA pad, is a joystick and
+# already gets a world-readable js device, so it needs no rule.)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="400b", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="400b", MODE="0660", GROUP="plugdev", TAG+="uaccess"
