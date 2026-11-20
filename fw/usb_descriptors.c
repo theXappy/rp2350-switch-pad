@@ -9,6 +9,56 @@
  */
 #include "tusb.h"
 #ifdef NATIVE_PAD
+#ifdef KEYBOARD_MODE
+/* -------- native port = standard USB HID boot keyboard (for the Switch) -------
+ * A generic keyboard needs no licensing, so the Switch accepts it for text entry
+ * anywhere a field is open. Built from TinyUSB's own keyboard macros. */
+#ifndef KBD_VID
+#define KBD_VID 0x2E8A /* Raspberry Pi */
+#endif
+#ifndef KBD_PID
+#define KBD_PID 0xA7B0
+#endif
+static const uint8_t kbd_report_desc[] = { TUD_HID_REPORT_DESC_KEYBOARD() };
+static const tusb_desc_device_t kbd_dev_desc = {
+    .bLength = sizeof(tusb_desc_device_t),
+    .bDescriptorType = TUSB_DESC_DEVICE,
+    .bcdUSB = 0x0200,
+    .bDeviceClass = 0x00, /* class defined at interface (HID) */
+    .bDeviceSubClass = 0x00,
+    .bDeviceProtocol = 0x00,
+    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+    .idVendor = KBD_VID,
+    .idProduct = KBD_PID,
+    .bcdDevice = 0x0100,
+    .iManufacturer = 0x01,
+    .iProduct = 0x02,
+    .iSerialNumber = 0x00,
+    .bNumConfigurations = 0x01,
+};
+#define KBD_CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
+static const uint8_t kbd_cfg_desc[] = {
+    TUD_CONFIG_DESCRIPTOR(1, 1, 0, KBD_CONFIG_TOTAL_LEN, 0x00, 100),
+    TUD_HID_DESCRIPTOR(0, 0, HID_ITF_PROTOCOL_KEYBOARD, sizeof(kbd_report_desc),
+                       0x81, CFG_TUD_HID_EP_BUFSIZE, 10),
+};
+uint8_t const *tud_descriptor_device_cb(void) { return (uint8_t const *)&kbd_dev_desc; }
+uint8_t const *tud_descriptor_configuration_cb(uint8_t i) { (void)i; return kbd_cfg_desc; }
+uint16_t tud_hid_get_report_cb(uint8_t i, uint8_t id, hid_report_type_t t, uint8_t *b, uint16_t n) { (void)i;(void)id;(void)t;(void)b;(void)n; return 0; }
+void tud_hid_set_report_cb(uint8_t i, uint8_t id, hid_report_type_t t, uint8_t const *b, uint16_t n) { (void)i;(void)id;(void)t;(void)b;(void)n; /* ignore LED state */ }
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t i) { (void)i; return kbd_report_desc; }
+uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
+    (void)langid;
+    static uint16_t d[32];
+    static char const *s[] = { [1] = "RP2350", [2] = "RP2350 Keyboard" };
+    uint8_t len = 0;
+    if (index == 0) { d[1] = 0x0409; len = 1; }
+    else if (index < 3) { for (; s[index][len]; len++) d[1 + len] = (uint16_t)s[index][len]; }
+    else return NULL;
+    d[0] = (uint16_t)((TUSB_DESC_STRING << 8) | (2 * len + 2));
+    return d;
+}
+#else /* NATIVE_PAD, not KEYBOARD_MODE: the PowerA controller */
 #include "powa_descriptors.h"
 uint8_t const *tud_descriptor_device_cb(void) { return powa_device_descriptor; }
 uint8_t const *tud_descriptor_configuration_cb(uint8_t i) { (void)i; return powa_configuration_descriptor; }
@@ -27,6 +77,7 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     d[0] = (uint16_t)((TUSB_DESC_STRING << 8) | (2 * len + 2));
     return d;
 }
+#endif /* KEYBOARD_MODE */
 #else
 
 

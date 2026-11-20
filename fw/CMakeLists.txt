@@ -36,6 +36,14 @@ if(SELFTEST)
     add_compile_definitions(SELFTEST)
 endif()
 
+# -DKEYBOARD_MODE=ON: native port presents a standard USB keyboard instead of
+# the PowerA controller (for typing text into Switch fields). With SELFTEST it
+# auto-types a string to prove the Switch accepts it.
+option(KEYBOARD_MODE "native port is a USB keyboard" OFF)
+if(KEYBOARD_MODE)
+    add_compile_definitions(KEYBOARD_MODE)
+endif()
+
 add_executable(bridge)
 
 target_sources(bridge PRIVATE

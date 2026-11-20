@@ -51,6 +51,9 @@ extern uint8_t pio_identity_get(void);
 extern void pio_identity_set(uint8_t id);
 #include "powa_descriptors.h"
 extern void build_powa_report(const pad_state_t *pad, powa_report_t *r);
+#ifdef KEYBOARD_MODE
+#include "keyboard_native.h"
+#endif
 #include "ds4_device.h"
 extern const usb_descriptor_buffers_t *pio_identity_descriptors(void);
 #include "dinput_descriptors.h"
@@ -382,6 +385,9 @@ void core0_main(void) {
             }
         }
         {
+#ifdef KEYBOARD_MODE
+            kbd_native_task();   /* native port is a USB keyboard */
+#else
             static uint32_t hid_last;
             uint32_t hnow = board_millis();
             if (hnow != hid_last && tud_hid_ready()) {
@@ -392,10 +398,11 @@ void core0_main(void) {
                 build_powa_report(&hp, &hr);
                 tud_hid_report(0, &hr, sizeof(hr));
             }
+#endif
         }
 #endif
 
-#ifdef SELFTEST
+#if defined(SELFTEST) && !defined(KEYBOARD_MODE)
         /* standalone: cycle d-pad E,S,W,N (1 s each) then pulse A, forever,
          * so the board can be powered from the dock alone with no PC */
         {
