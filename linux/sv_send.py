@@ -24,7 +24,17 @@ HAT_CENTER = 8
 BTN = {"A":1<<0,"B":1<<1,"X":1<<2,"Y":1<<3,"L":1<<4,"R":1<<5,"ZL":1<<6,"ZR":1<<7,
        "PLUS":1<<8,"MINUS":1<<9,"HOME":1<<10,"CAPTURE":1<<11,"L3":1<<12,"R3":1<<13}
 
-_seq = 0
+_SEQ_FILE = os.path.expanduser("~/.sv_send_seq")
+
+def _load_seq():
+    try: return int(open(_SEQ_FILE).read().strip()) & 0xFF
+    except Exception: return 0
+
+def _save_seq(v):
+    try: open(_SEQ_FILE, "w").write(str(v & 0xFF))
+    except Exception: pass
+
+_seq = _load_seq()
 
 
 def _IOWR(t, nr, size):
@@ -64,6 +74,7 @@ def send(fd, packet33):
     _seq = (_seq + 1) & 0xFF
     buf = bytes([0]) + packet33 + bytes([_seq]) + bytes(64 - SV_SEQ_OFFSET - 1)
     hidiocsfeature(fd, buf)  # 65 bytes: report id 0 + 64 payload
+    _save_seq(_seq)
 
 
 def type_text(fd, s):
