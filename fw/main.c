@@ -158,6 +158,37 @@ void load_pad(pad_state_t *p) {
     }
 }
 
+/* Relative-mouse accumulator (core1 adds, core0 drains and sends). Shares the
+ * pad mutex; both critical sections are tiny. */
+static int32_t g_mouse_dx, g_mouse_dy, g_mouse_wheel;
+static uint8_t g_mouse_btn;
+static bool g_mouse_dirty;
+
+void mouse_add(int dx, int dy, int wheel, uint8_t btn) {
+    if (mutex_enter_timeout_ms(&g_pad_mutex, 2)) {
+        g_mouse_dx += dx; g_mouse_dy += dy; g_mouse_wheel += wheel;
+        g_mouse_btn = btn;
+        g_mouse_dirty = true;
+        mutex_exit(&g_pad_mutex);
+    }
+}
+
+/* Returns true and fills the deltas (clearing them) if there is pending mouse
+ * activity; false otherwise. */
+bool mouse_take(int *dx, int *dy, int *wheel, uint8_t *btn) {
+    bool had = false;
+    if (mutex_enter_timeout_ms(&g_pad_mutex, 2)) {
+        if (g_mouse_dirty) {
+            *dx = g_mouse_dx; *dy = g_mouse_dy; *wheel = g_mouse_wheel; *btn = g_mouse_btn;
+            g_mouse_dx = g_mouse_dy = g_mouse_wheel = 0;
+            g_mouse_dirty = false;
+            had = true;
+        }
+        mutex_exit(&g_pad_mutex);
+    }
+    return had;
+}
+
 //--------------------------------------------------------------------+
 // CDC frame parsing (core0)
 //--------------------------------------------------------------------+
@@ -258,7 +289,16 @@ static void handle_sv_packet(volatile const uint8_t *b) {
         for (uint8_t i = 0; i < len; i++) kbd_queue_char((char)b[SV_OFF_TEXT + i]);
     }
 #endif
-    /* SV_PKT_PING / SV_PKT_MOUSE: not handled here yet */
+#ifdef COMPOSITE_MODE
+    else if (type == SV_PKT_MOUSE) {
+        uint8_t btn = b[SV_OFF_BUTTONS] & 0x07;   /* SV_MOUSE_* = left/right/middle */
+        int16_t dx = (int16_t)((uint16_t)b[SV_OFF_LX] | ((uint16_t)b[SV_OFF_LX + 1] << 8));
+        int16_t dy = (int16_t)((uint16_t)b[SV_OFF_LY] | ((uint16_t)b[SV_OFF_LY + 1] << 8));
+        int16_t wheel = (int16_t)((uint16_t)b[SV_OFF_RX] | ((uint16_t)b[SV_OFF_RX + 1] << 8));
+        mouse_add(dx, dy, wheel, btn);
+    }
+#endif
+    /* SV_PKT_PING: not handled here */
 }
 
 static void release_all(void) {
@@ -445,6 +485,18 @@ void core0_main(void) {
             }
 #ifdef COMPOSITE_MODE
             kbd_native_task();   /* keyboard on itf1 */
+            if (tud_hid_n_ready(2)) {
+                int dx, dy, wheel; uint8_t mb;
+                if (mouse_take(&dx, &dy, &wheel, &mb)) {
+                    if (dx > 32767) dx = 32767; else if (dx < -32767) dx = -32767;
+                    if (dy > 32767) dy = 32767; else if (dy < -32767) dy = -32767;
+                    if (wheel > 127) wheel = 127; else if (wheel < -127) wheel = -127;
+                    struct __attribute__((packed)) {
+                        uint8_t buttons; int16_t x, y; int8_t wheel;
+                    } mr = { mb, (int16_t)dx, (int16_t)dy, (int8_t)wheel };
+                    tud_hid_n_report(2, 0, &mr, sizeof(mr)); /* mouse on itf2 */
+                }
+            }
 #endif
 #endif
         }

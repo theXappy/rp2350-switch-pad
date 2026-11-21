@@ -22,7 +22,7 @@ extern "C" {
 #ifdef NATIVE_PAD
 #define CFG_TUD_CDC 0
 #ifdef COMPOSITE_MODE
-#define CFG_TUD_HID 2   /* itf0 PowerA gamepad + itf1 keyboard */
+#define CFG_TUD_HID 3   /* itf0 PowerA gamepad + itf1 keyboard + itf2 mouse */
 #else
 #define CFG_TUD_HID 1
 #endif
