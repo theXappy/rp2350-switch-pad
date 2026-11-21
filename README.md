@@ -1,263 +1,128 @@
-# rp2350-switch-pad
+# rp2350-switch-pad — SwitchView / USB fork
 
-**Version 0.1.5** - MIT licensed, see [CHANGELOG.md](CHANGELOG.md).
-
-Play your Nintendo Switch 2 remotely with friends over [Parsec](https://parsec.app). A Waveshare
-**RP2350-USB-C** board pretends to be a wired PowerA Switch controller, and a PC tool streams a
-gamepad to it. A built-in capture window shows the Switch's screen (video and audio) from an HDMI
-capture card, ready to share. **Tested end to end with Parsec guests.** The PC app is **Windows only** for now
-(see [Platforms](#platforms)).
+A fork of [komabear/rp2350-switch-pad](https://github.com/komabear/rp2350-switch-pad)
+that turns a Waveshare **RP2350-USB-A** board into a USB device the **Nintendo
+Switch 2** accepts as a **controller, keyboard, and mouse at once**, driven from a
+Linux PC. It's the board-side firmware for
+[SwitchView](https://github.com/theXappy/SwitchView): capture the Switch's screen
+on your PC and drive it back over a single USB link — including **scripted text
+input**, which is the main reason this fork exists.
 
 ```
-Friend's pad ──Parsec──▶ your PC (Xbox 360 virtual pad)
-                              │  host/gui_hid.py  (XInput → frames)
-                              │  USB HID feature reports
-                              ▼
-                  board PIO-USB Type-C ═══ RP2350-USB-C ═══ board native Type-C
-                                                                   │  wired "PowerA" pad
-                                                                   ▼
-Switch 2 dock USB port ◀───────────────────────────────────────────┘
-        │ HDMI
-        ▼
-HDMI capture card ──USB──▶ your PC ──▶ "Switch Capture" window ──Parsec / Discord / OBS──▶ friends
+PC (SwitchView app)
+   │  SV protocol over USB HID feature reports
+   ▼
+board PIO-USB (USB-A plug) ═══ RP2350-USB-A ═══ board native USB (Type-C)
+                                                     │  composite HID:
+                                                     │  PowerA controller + keyboard + mouse
+                                                     ▼
+                                         Switch 2 dock USB port
 ```
 
-The Switch sees a normal licensed wired controller (PowerA "BDA NSW wired controller",
-`20D6:A713`), so no adapter is needed.
+The Switch sees a normal licensed wired controller (PowerA "BDA NSW wired
+controller", `20D6:A713`) presented over the board's **native hardware USB**, plus
+a standard boot keyboard and a relative mouse on the same device. The PC talks to
+the board over the **PIO-USB** side (the USB-A male plug), which shows up as a HID
+device `2E8A:400B`.
 
-## Contents
+## Why a fork
 
-- [Download](#download-no-python-needed) · [Hardware](#hardware) · [Daily routine](#daily-routine)
-- [The GUI](#the-gui) · [Capture window](#capture-window-video--audio)
-- [Troubleshooting](#troubleshooting) · [Build and flash](#build-and-flash) · [Status and limits](#status-and-limits)
+komabear's project streams a friend's gamepad to your Switch over Parsec, with a
+**Windows-only** PC app and a **USB-C** board. This fork keeps komabear's proven
+"RP2350 → Switch 2" native-USB controller path and changes everything around it:
 
-## Download (no Python needed)
-
-The GitHub releases page has `rp2350-switch-pad-v<version>-windows.zip`: the GUI as a Windows exe
-(unzip and run `rp2350-switch-pad.exe`; Windows SmartScreen may warn because it is unsigned) plus
-`bridge.uf2`, the board firmware, the README and the changelog. Flash the UF2 once (see
-[Flash](#flash)), then follow the [daily routine](#daily-routine).
-
-The capture window uses `ffmpeg` only to list device names (`winget install Gyan.FFmpeg`).
+- **Composite device:** adds a **keyboard** and a **mouse** interface next to the
+  controller, so one board covers everything SwitchView needs.
+- **Scripted keyboard input:** send arbitrary text to the Switch from the PC (type
+  into search boxes, SmileBASIC, name fields, etc.).
+- **SwitchView SV protocol** over the PC link instead of komabear's XInput framing,
+  so the SwitchView app drives it directly — no middleware.
+- **Linux tooling** (the original PC app was Windows only) and a build that runs on
+  the **RP2350-USB-A** board + Ubuntu 26.04 / GCC 14.
 
 ## Hardware
 
-- Waveshare RP2350-USB-C (two Type-C ports: **native/programming** and **PIO-USB**).
-- Two **data-capable** USB cables for the board (some charge-only cables fail silently).
-- Switch 2 dock, an HDMI capture card (UGREEN HDMI Capture tested, 1080p60), a **Windows 10/11 PC**.
+- **Waveshare RP2350-USB-A** (native USB on the Type-C port, PIO-USB on the USB-A
+  male plug; PIO pins GPIO12/13). komabear's USB-C board also works — only the
+  connector shape differs.
+- Two data-capable USB cables / ports (some charge-only cables fail silently).
+- A Switch 2 (+ dock) and a Linux PC. For capture, an HDMI capture card — see
+  [SwitchView](https://github.com/theXappy/SwitchView).
 
-## Daily routine
+## Flash
 
-The PIO-USB link is fragile: **follow this order**.
+Prebuilt images are in [`out/`](out/):
 
-Connect:
+| File | What it is |
+|---|---|
+| `bridge-COMPOSITE-pc.uf2` | **The one SwitchView uses:** controller + keyboard + mouse, driven from the PC over the SV protocol. |
+| `bridge-NORMAL.uf2` | PowerA controller only, driven from the PC. |
+| `bridge-SELFTEST.uf2` | Controller that cycles the D-pad by itself — no PC needed, good for a quick dock test. |
+| `bridge-KEYBOARD-selftest.uf2` | Keyboard only; auto-types "hello " to prove typing works. |
+| `bridge-COMPOSITE-selftest.uf2` | Composite that self-tests the keyboard. |
 
-1. Unplug everything from the board.
-2. Plug the board's **native** Type-C (the programming port) into a **dock USB port**. Wait ~10 s;
-   the Switch sees a wired pad.
-3. Plug the board's **PIO-USB** Type-C into the **PC**.
-4. Right away start the GUI. All status rows should turn green. Keep it open while playing.
+Put the board in BOOTSEL (hold BOOT, tap RST) and copy a UF2 onto the `RP2350`
+drive:
 
-Disconnect:
-
-1. Close the GUI with its **X** button (don't kill it).
-2. Unplug the **PIO** cable, then the **native** cable.
-
-Never plug the PIO cable in before the native cable, or leave it plugged into an idle board: the
-whole board (both ports) can freeze. Only unplugging **both** cables recovers that. If the GUI shows
-the link as stuck, see [the link troubleshooting](#the-gui-keeps-saying-board-not-found--not-responding)
-below; replugging the PIO cable is usually all it takes.
-
-## The GUI
-
-Start it with `rp2350-switch-pad.exe` (release) or `py host/gui_hid.py`.
-
-- **Controller picker:** *Auto* (first connected pad) or pick one of the four XInput slots. Each slot
-  is listed by the name Windows reports plus its USB ID (for example "Controller (Xbox One For
-  Windows) [045E:02FF]"; a Parsec guest's pad shows as "Controller (XBOX 360 For Windows)"). A box
-  per slot turns green while that pad gets input, so you can press a button to see which is which.
-- **Status lights:** controller on the PC, link to the board, *Switch has detected the pad*, inputs
-  flowing PC → board. A hint line says what to do next when something is red.
-- **Switch AB/XY** (default on, remembered): swaps A↔B and X↔Y so an Xbox pad's physical layout
-  matches a Switch pad.
-- **Keep-alive** (default on, remembered): after 30 s with no change on the pad, sends a 3-frame,
-  ~10% right-stick nudge so the pad is never completely static. Untick it if a game reacts to it.
-- **HOME / CAPTURE** are press-and-hold buttons; the Xbox Guide button maps to HOME when Windows
-  exposes it.
-- **Console sleep:** the Switch cuts and restores dock USB power, so the board re-presents its USB
-  attach every 2 s while the bus is suspended. After waking the console, wait ~10 s and press a
-  button once; the pad comes back on its own. The "Switch has detected the pad" light is yellow while
-  the console sleeps.
-- Settings: `%APPDATA%\mayflash_switch2_controller\gui_settings.json`; state log:
-  `...\gui.log` (link and board state changes plus a heartbeat every minute).
-
-Headless alternative: `py host/bridge_hid.py` (or `--demo` to cycle the d-pad without a gamepad).
-
-## Capture window (video + audio)
-
-The **Capture card window** panel opens a window titled **Switch Capture** that shows the capture
-card's video and plays its audio. It is an ordinary desktop window, so you can share it in Parsec,
-Discord or OBS.
-
-- Pick the video device, the audio device and the quality (1080p 60 fps, 1080p 30 fps or
-  720p 60 fps); the defaults pick the UGREEN card. Choices are remembered.
-- **Low latency, no tearing:** capture runs at the card's full rate, only the newest frame is ever
-  drawn (nothing queues up), and frames go to the screen through a GPU renderer with vsync. The
-  audio runs in its own helper process with a small buffer and clock-drift compensation, so video
-  load can never make it crackle.
-- **Keys in the window:** `f` fullscreen, `m` mute, mouse wheel, `+`/`-` or Up/Down = volume,
-  `q`/`Esc` close (with keyboard control on, `q` and the arrow keys go to the pad instead).
-- **Keyboard and mouse as a gamepad** (off by default, remembered): tick *Keyboard/mouse -> gamepad
-  (capture window)* in the GUI, and while the capture window has focus your keys reach the Switch as
-  pad input, merged with any real pad:
-
-  | Pad | Keys | | Pad | Keys |
-  |---|---|---|---|---|
-  | Left stick | `W` `A` `S` `D` | | D-pad | arrow keys |
-  | A / B / X / Y | `K` / `L` / `J` / `I` | | L / R | `Q` / `E` |
-  | ZL / ZR | `U` / `O` | | Minus / Plus | `1` / `2` |
-  | L3 / R3 | `,` / `.` | | Home / Capture | `H` / `G` |
-  | Right stick | mouse movement | | A / B | left / right mouse button |
-
-  *Remap keys...* binds any function to a letter, digit, arrow key, comma, period or mouse button
-  (click the function, then press the key; right-click to unbind; *Mouse movement* is switched on
-  and off with a click; `m` and `f` stay the window's).
-  The profile list next to it keeps several layouts (*Save as*, *Duplicate*, *Rename*, *Del*). Held
-  keys are released on the pad when the window loses focus.
-- **Volume:** a slider in the GUI (0–100%, remembered, changes the open window live). 10% is the
-  card's level unchanged and 100% is a 10× boost, with a soft limiter against harsh clipping. The
-  card's audio can arrive very quiet because of **Windows' own recording level** for it (it was 17%
-  here): set it to 100% in *Settings → System → Sound → Input → the card → Volume*. The panel warns
-  when that level is low.
-- **Recovers by itself:** if frames stop for 2 s, the frame rate collapses, or the picture stays
-  black for 10 s, the window reopens the card; if the card can't be opened it keeps retrying and
-  shows "Waiting for the capture card...".
-- **No-signal detection:** when the card is stuck sending its own "no valid video signal" picture
-  (static vertical stripes), the window explains it instead of showing the stripes and tells you what
-  to do (see below). A plain white, grey or black game screen is not mistaken for it.
-- A diagnostic log is written to `%APPDATA%\mayflash_switch2_controller\capture.log` (problems,
-  recoveries, a heartbeat every minute).
-
-Standalone: `py host/capture_view.py --video-index 1 --audio "<audio device name>"`.
-
-## Troubleshooting
-
-### The GUI keeps saying "board not found" / "not responding"
-
-The link row loops between "board not found" and "found but not responding". The PIO-USB link goes
-idle whenever nothing talks to it (for example after the GUI was closed for a while), and it does
-not wake up on its own.
-
-**Fix: unplug the PIO cable (from the board or from the PC), wait about 3 seconds, and plug it back
-in.** The GUI reconnects by itself and everything works again; no restart is needed.
-
-If that does not help (for example the Switch no longer sees the pad either), unplug **both** board
-cables, wait 5 s, and redo the [connect steps](#daily-routine).
-
-### The capture window shows stripes, goes black, or says it can't open the card
-
-- **Vertical stripes / "no valid video" message:** the capture card wedged itself (it can after
-  sitting idle for hours or after an HDMI mode change). **Unplug the card's USB cable and plug it
-  back in.** If that is not enough, replug the HDMI cable between the dock and the card, and check
-  the Switch's video output (1080p, 60 Hz, HDR and VRR off).
-- **Short black pictures at full frame rate** are usually just game fades and loading screens.
-- **Sound too quiet:** set the card's recording level in Windows to 100% (see above) before using
-  the boost slider.
-- Read `capture.log` for a timestamped account of what happened.
-
-### Other
-
-- *Switch has detected the pad* is red: check the native cable (data-capable), that it is in a dock
-  USB port, then redo the connect order. If the GUI says the pad port is in this PC, the native cable
-  is plugged into the computer instead of the dock.
-- A PC-only test without the Switch: plug the native port into the PC, run `py tools/board_diag.py`
-  and look for "NSW wired controller" in joy.cpl.
-- Tools: `tools/link_test.py` (writes frames to the PIO link and reports successes/failures; note
-  `hidapi` returns `-1` on failure instead of raising), `tools/board_diag.py` (crash registers,
-  core-1 heartbeat, frame counters; works only while the native port is on the PC) and
-  `tools/tear_check.py` (records ~5 s from the capture card and counts torn/duplicate frames).
-
-## Build and flash
-
-Only needed to change the firmware or the host tools.
-
-```
-py -m pip install -r host/requirements.txt     # hidapi, opencv, sounddevice, pygame-ce, pycaw, ...
+```sh
+cp out/bridge-COMPOSITE-pc.uf2 /run/media/$USER/RP2350/
 ```
 
-### Build the firmware
+Cabling: native **Type-C → Switch 2 dock USB port**; PIO **USB-A plug → the PC**.
+Connect native first, then PIO. (The PIO link is fragile — if the PC can't find the
+board, unplug the USB-A plug, wait ~3 s, replug. Never leave it plugged into an
+idle board.)
 
-Needs `arm-none-eabi-gcc`, CMake, Ninja and the [pico-sdk](https://github.com/raspberrypi/pico-sdk)
-**2.2.0** with submodules.
+## Drive it from Linux
 
-```
-git clone --branch 2.2.0 --recurse-submodules https://github.com/raspberrypi/pico-sdk third_party/pico-sdk
-cmake -S fw -B fw/build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build fw/build
-```
+The PC link (`2E8A:400B`) is a root-only hidraw by default. Install the udev rule
+once so your user can open it:
 
-(or set `PICO_SDK_PATH`). Options: `-DSELFTEST=ON` makes the board cycle the d-pad by itself, so you
-can test it on the dock without a PC; `-DDEFAULT_IDENTITY=n` picks the pad identity (3 = PowerA).
-
-### Flash
-
-Plug the **native** port into the PC, hold **BOOT**, tap **RST**, copy `fw/build/bridge.uf2` to the
-`RP2350` drive. Unplug the board afterwards and follow the daily routine.
-
-### Build the Windows bundle
-
-Build the firmware first, then `py -m pip install pyinstaller` and `py tools/build_release.py`
-(output in `release/`).
-
-## Platforms
-
-**Windows only** (tested on Windows 11). The board firmware is platform independent, but the PC app is
-not:
-
-- gamepads are read through Windows' XInput, which also supplies the controller names and USB IDs;
-- the capture window uses DirectShow (video) and WASAPI (audio), plus a few Windows calls for process
-  priority and the card's recording level;
-- the release is a Windows exe.
-
-Linux and macOS are untested and **will not work as is**. A port would need a different gamepad backend
-(evdev or SDL joysticks), V4L2 plus PulseAudio/PipeWire for the capture window, and on Linux a udev rule
-so the board's USB HID link can be opened without root (and probably one that disables USB auto-suspend
-for it). Contributions welcome.
-
-## Status and limits
-
-- **Verified:** Xbox pad → PC → board → Switch 2 dock (buttons, sticks, AB/XY swap, console
-  sleep/wake, repeated connect/disconnect cycles) and **Parsec guests playing through it**; the
-  capture window with sound at 1080p60 (a 57-minute play session without a dropout).
-- One pad per board (the Switch sees one controller per USB device).
-- The PIO-USB link goes idle when nothing talks to it and needs a replug (see above). The freeze
-  with a wrongly ordered connection is understood only by its symptoms. A USB-to-serial adapter on
-  the board's UART pins would be a more robust PC link than PIO-USB; the firmware's frame parser is
-  already link-agnostic.
-- The capture card can wedge after sitting idle; replugging its USB cable recovers it.
-- Not tested: sessions longer than a few hours.
-
-## Layout
-
-```
-fw/        firmware (main.c, usb_descriptors.c, pad maps, CMakeLists.txt)
-fw/pio_usb vendored + patched PIO-USB (see fw/pio_usb/README.md for origin and licenses)
-host/      gui_hid.py (GUI), capture_view.py (capture window), bridge.py (XInput → frames),
-           bridge_hid.py (link sender / headless tool)
-tools/     link_test.py, board_diag.py, tear_check.py, build_release.py
+```sh
+sudo cp linux/99-switch-pad.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-`fw/` still contains the DualShock-4 / DInput / HORI identities from the abandoned Mayflash
-design; they are compiled in but unused (`DEFAULT_IDENTITY=3`).
+then replug the USB-A plug.
 
-## License
+- **From SwitchView:** run the SwitchView app with `-H usb` (it finds the board
+  automatically). It sends controller state, keyboard text, and mouse motion over
+  the same link.
+- **Standalone text/input** with [`linux/sv_send.py`](linux/sv_send.py):
 
-The code written for this project (`fw/` except `fw/pio_usb/`, `host/`, `tools/`) is under the
-[MIT License](LICENSE). Third-party code keeps its own licenses, listed in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); the license texts are in `licenses/` and in the
-`licenses/` folder of every release zip.
+  ```sh
+  python3 linux/sv_send.py text "hello world"      # type a string
+  echo "some text" | python3 linux/sv_send.py type # type stdin (one line = one Enter)
+  python3 linux/sv_send.py press A B               # tap controller buttons
+  ```
 
-## Credits
+- [`linux/drive_switch.py`](linux/drive_switch.py) — interactive controller driver
+  (keyboard → pad; `?` for the map).
+- [`linux/sniff_powa.py`](linux/sniff_powa.py) — read the native PowerA pad's js
+  device on this PC to verify input (no Switch needed).
 
-PIO-USB: [Pico-PIO-USB](https://github.com/sekigon-gonnoc/Pico-PIO-USB) (sekigon-gonnoc, MIT) via
-Waveshare's RP2350-USB-C examples (Apache-2.0). Built on the Raspberry Pi pico-sdk and TinyUSB.
+## Build
+
+Toolchain: arm-none-eabi GCC + the Pico SDK (2.1.1 builds fine). From the repo root:
+
+```sh
+export PICO_SDK_PATH=$HOME/pico-sdk
+cmake -S fw -B fw/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOMPOSITE_MODE=ON
+cmake --build fw/build        # -> fw/build/bridge.uf2
+```
+
+Build options (CMake `-D…=ON`):
+
+- `COMPOSITE_MODE` — controller + keyboard + mouse (what SwitchView uses).
+- `KEYBOARD_MODE` — native port is a plain USB keyboard only.
+- `SELFTEST` — board drives itself for a no-PC test; combine with the mode above.
+
+Leaving all off builds the PowerA-controller-only image.
+
+## Credits & license
+
+Forked from [komabear/rp2350-switch-pad](https://github.com/komabear/rp2350-switch-pad),
+which figured out the RP2350 → Switch 2 native-USB controller path. MIT licensed —
+see [LICENSE](LICENSE). Third-party components are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). See [NOTES-shai.md](NOTES-shai.md)
+for the hands-on build/test log on the RP2350-USB-A.
