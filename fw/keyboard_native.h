@@ -12,6 +12,12 @@
 #include "tusb.h"
 #include "pico/stdlib.h"
 
+/* Which TinyUSB HID instance the keyboard lives on: 0 standalone (KEYBOARD_MODE),
+ * 1 in the composite (COMPOSITE_MODE: gamepad=0, keyboard=1). */
+#ifndef KBD_HID_INSTANCE
+#define KBD_HID_INSTANCE 0
+#endif
+
 /* ASCII -> (modifier, HID usage). Returns false for characters we can't type. */
 static bool ascii_to_hid(char ch, uint8_t *mod, uint8_t *key) {
     uint8_t c = (uint8_t)ch;
@@ -84,7 +90,7 @@ static inline bool kbd_queue_pop(char *out) {
  * the host clean down/up edges. Call it every main-loop iteration.
  */
 static void kbd_native_task(void) {
-    if (!tud_hid_ready()) return;
+    if (!tud_hid_n_ready(KBD_HID_INSTANCE)) return;
     static uint32_t last_ms;
     static bool holding;
     static char cur;
@@ -105,12 +111,12 @@ static void kbd_native_task(void) {
         uint8_t mod = 0, key = 0, kc[6] = {0};
         if (ascii_to_hid(cur, &mod, &key)) {
             kc[0] = key;
-            tud_hid_keyboard_report(0, mod, kc);
+            tud_hid_n_keyboard_report(KBD_HID_INSTANCE, 0, mod, kc);
             holding = true;
         }
         /* unmapped char: just skip it (stay not-holding) */
     } else {
-        tud_hid_keyboard_report(0, 0, NULL); /* release */
+        tud_hid_n_keyboard_report(KBD_HID_INSTANCE, 0, 0, NULL); /* release */
         holding = false;
     }
 }

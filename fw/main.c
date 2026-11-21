@@ -51,7 +51,10 @@ extern uint8_t pio_identity_get(void);
 extern void pio_identity_set(uint8_t id);
 #include "powa_descriptors.h"
 extern void build_powa_report(const pad_state_t *pad, powa_report_t *r);
-#ifdef KEYBOARD_MODE
+#if defined(KEYBOARD_MODE) || defined(COMPOSITE_MODE)
+#ifdef COMPOSITE_MODE
+#define KBD_HID_INSTANCE 1   /* composite: gamepad=itf0, keyboard=itf1 */
+#endif
 #include "keyboard_native.h"
 #endif
 #include "ds4_device.h"
@@ -390,14 +393,17 @@ void core0_main(void) {
 #else
             static uint32_t hid_last;
             uint32_t hnow = board_millis();
-            if (hnow != hid_last && tud_hid_ready()) {
+            if (hnow != hid_last && tud_hid_n_ready(0)) {
                 hid_last = hnow;
                 pad_state_t hp;
                 load_pad(&hp);
                 powa_report_t hr;
                 build_powa_report(&hp, &hr);
-                tud_hid_report(0, &hr, sizeof(hr));
+                tud_hid_n_report(0, 0, &hr, sizeof(hr)); /* gamepad on itf0 */
             }
+#ifdef COMPOSITE_MODE
+            kbd_native_task();   /* keyboard on itf1 */
+#endif
 #endif
         }
 #endif

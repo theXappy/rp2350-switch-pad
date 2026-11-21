@@ -21,7 +21,11 @@ extern "C" {
 /* CDC for the bridge protocol */
 #ifdef NATIVE_PAD
 #define CFG_TUD_CDC 0
+#ifdef COMPOSITE_MODE
+#define CFG_TUD_HID 2   /* itf0 PowerA gamepad + itf1 keyboard */
+#else
 #define CFG_TUD_HID 1
+#endif
 #define CFG_TUD_HID_EP_BUFSIZE 64
 #else
 #define CFG_TUD_CDC 1

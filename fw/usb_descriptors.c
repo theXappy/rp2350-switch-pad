@@ -9,7 +9,64 @@
  */
 #include "tusb.h"
 #ifdef NATIVE_PAD
-#ifdef KEYBOARD_MODE
+#ifdef COMPOSITE_MODE
+/* -------- native port = COMPOSITE: PowerA gamepad (itf0) + keyboard (itf1) ----
+ * Interface 0 is the licensed PowerA controller byte-for-byte (same report desc,
+ * same IN endpoint 0x81) so the Switch still sees the licensed pad; interface 1
+ * is a standard boot keyboard on IN 0x82. This is the experiment: does the
+ * Switch still accept the controller when a keyboard is bolted on? */
+#include "powa_descriptors.h"
+extern uint16_t diag_fill(uint8_t *buf, uint16_t len);
+
+/* standard boot keyboard report descriptor (63 bytes, no report ID) */
+#define KBD_REPORT_DESC_LEN 63
+static const uint8_t kbd_boot_report_desc[KBD_REPORT_DESC_LEN] = {
+    0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7,
+    0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0x95, 0x01,
+    0x75, 0x08, 0x81, 0x03, 0x95, 0x05, 0x75, 0x01, 0x05, 0x08, 0x19, 0x01,
+    0x29, 0x05, 0x91, 0x02, 0x95, 0x01, 0x75, 0x03, 0x91, 0x03, 0x95, 0x06,
+    0x75, 0x08, 0x15, 0x00, 0x25, 0x65, 0x05, 0x07, 0x19, 0x00, 0x29, 0x65,
+    0x81, 0x00, 0xC0,
+};
+
+/* composite config: 2 HID interfaces. 9(cfg)+25(itf0)+25(itf1) = 59 */
+#define COMPO_CONFIG_TOTAL_LEN 59
+static const uint8_t compo_configuration_descriptor[COMPO_CONFIG_TOTAL_LEN] = {
+    /* Configuration */
+    0x09, 0x02, COMPO_CONFIG_TOTAL_LEN, 0x00, 0x02, 0x01, 0x00, 0x80, 0xFA,
+    /* Interface 0 — PowerA gamepad (identical to the standalone pad) */
+    0x09, 0x04, 0x00, 0x00, 0x01, 0x03, 0x00, 0x00, 0x00,
+    0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22,
+    (uint8_t)(POWA_REPORT_DESC_LEN & 0xFF), (uint8_t)((POWA_REPORT_DESC_LEN >> 8) & 0xFF),
+    0x07, 0x05, 0x81, 0x03, 0x40, 0x00, 0x01, /* IN1 64B 1ms */
+    /* Interface 1 — boot keyboard */
+    0x09, 0x04, 0x01, 0x00, 0x01, 0x03, 0x01, 0x01, 0x00,
+    0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22,
+    (uint8_t)(KBD_REPORT_DESC_LEN & 0xFF), (uint8_t)((KBD_REPORT_DESC_LEN >> 8) & 0xFF),
+    0x07, 0x05, 0x82, 0x03, 0x40, 0x00, 0x0A, /* IN2 64B 10ms */
+};
+
+uint8_t const *tud_descriptor_device_cb(void) { return powa_device_descriptor; }
+uint8_t const *tud_descriptor_configuration_cb(uint8_t i) { (void)i; return compo_configuration_descriptor; }
+uint16_t tud_hid_get_report_cb(uint8_t i, uint8_t id, hid_report_type_t t, uint8_t *b, uint16_t n) {
+    (void)id;
+    if (i == 0 && t == HID_REPORT_TYPE_FEATURE) return diag_fill(b, n); /* PowerA vendor feature */
+    return 0;
+}
+void tud_hid_set_report_cb(uint8_t i, uint8_t id, hid_report_type_t t, uint8_t const *b, uint16_t n) { (void)i;(void)id;(void)t;(void)b;(void)n; }
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t i) { return (i == 1) ? kbd_boot_report_desc : powa_report_descriptor; }
+uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
+    (void)langid;
+    static uint16_t d[32];
+    static char const *s[] = { [1] = "BDA", [2] = "NSW wired controller" };
+    uint8_t len = 0;
+    if (index == 0) { d[1] = 0x0409; len = 1; }
+    else if (index < 3) { for (; s[index][len]; len++) d[1 + len] = (uint16_t)s[index][len]; }
+    else return NULL;
+    d[0] = (uint16_t)((TUSB_DESC_STRING << 8) | (2 * len + 2));
+    return d;
+}
+#elif defined(KEYBOARD_MODE)
 /* -------- native port = standard USB HID boot keyboard (for the Switch) -------
  * A generic keyboard needs no licensing, so the Switch accepts it for text entry
  * anywhere a field is open. Built from TinyUSB's own keyboard macros. */

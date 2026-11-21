@@ -44,6 +44,15 @@ if(KEYBOARD_MODE)
     add_compile_definitions(KEYBOARD_MODE)
 endif()
 
+# -DCOMPOSITE_MODE=ON: native port is ONE composite device exposing BOTH the
+# PowerA controller (itf0) and a keyboard (itf1). Experiment: does the Switch
+# still accept the licensed controller when a keyboard is added? With SELFTEST
+# the controller auto-cycles the d-pad and the keyboard auto-types.
+option(COMPOSITE_MODE "native port = PowerA controller + keyboard composite" OFF)
+if(COMPOSITE_MODE)
+    add_compile_definitions(COMPOSITE_MODE)
+endif()
+
 add_executable(bridge)
 
 target_sources(bridge PRIVATE
