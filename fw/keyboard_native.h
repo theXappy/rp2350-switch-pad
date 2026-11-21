@@ -95,7 +95,9 @@ static void kbd_native_task(void) {
     static bool holding;
     static char cur;
     uint32_t now = board_millis();
-    if ((now - last_ms) < 12) return;
+    /* ~50 ms per phase => ~100 ms/char (10 cps), matching SwitchView's rate so
+     * the Switch's text field doesn't drop characters. */
+    if ((now - last_ms) < 50) return;
 
 #ifdef SELFTEST
     /* auto-type a visible marker so the Switch's text field fills up */

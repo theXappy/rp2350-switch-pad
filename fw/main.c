@@ -38,6 +38,7 @@
 #include "pio_usb_ll.h"
 
 #include "proto.h"
+#include "sv_proto.h"
 #include "bridge.h"
 #include "usb_definitions.h"
 
@@ -217,6 +218,47 @@ static void apply_frame(const uint8_t *f) {
     released = false;
     g_frames_live = true;
     diag_frames++;
+}
+
+/* SwitchView-protocol packet over the link (33-byte sv_packet). STATE drives the
+ * controller; TEXT queues keystrokes for the keyboard. b points at the 64-byte
+ * link buffer. */
+static void handle_sv_packet(volatile const uint8_t *b) {
+    uint8_t type = b[SV_OFF_TYPE];
+    if (type == SV_PKT_STATE) {
+        uint32_t btn = (uint32_t)b[SV_OFF_BUTTONS] | ((uint32_t)b[SV_OFF_BUTTONS + 1] << 8) |
+                       ((uint32_t)b[SV_OFF_BUTTONS + 2] << 16) | ((uint32_t)b[SV_OFF_BUTTONS + 3] << 24);
+        int16_t lx = (int16_t)((uint16_t)b[SV_OFF_LX] | ((uint16_t)b[SV_OFF_LX + 1] << 8));
+        int16_t ly = (int16_t)((uint16_t)b[SV_OFF_LY] | ((uint16_t)b[SV_OFF_LY + 1] << 8));
+        int16_t rx = (int16_t)((uint16_t)b[SV_OFF_RX] | ((uint16_t)b[SV_OFF_RX + 1] << 8));
+        int16_t ry = (int16_t)((uint16_t)b[SV_OFF_RY] | ((uint16_t)b[SV_OFF_RY + 1] << 8));
+        uint8_t hat = b[SV_OFF_HAT];
+        pad_state_t p;
+        memset(&p, 0, sizeof(p));
+        p.a = !!(btn & SV_BTN_A); p.b = !!(btn & SV_BTN_B);
+        p.x = !!(btn & SV_BTN_X); p.y = !!(btn & SV_BTN_Y);
+        p.l = !!(btn & SV_BTN_L); p.r = !!(btn & SV_BTN_R);
+        p.zl = !!(btn & SV_BTN_ZL); p.zr = !!(btn & SV_BTN_ZR);
+        p.plus = !!(btn & SV_BTN_PLUS); p.minus = !!(btn & SV_BTN_MINUS);
+        p.home = !!(btn & SV_BTN_HOME); p.capture = !!(btn & SV_BTN_CAPTURE);
+        p.l3 = !!(btn & SV_BTN_L3); p.r3 = !!(btn & SV_BTN_R3);
+        p.lx = (int8_t)(lx >> 8); p.ly = (int8_t)(ly >> 8);
+        p.rx = (int8_t)(rx >> 8); p.ry = (int8_t)(ry >> 8);
+        p.hat = (hat > 7) ? HAT_CENTER : hat;
+        store_pad(&p);
+        last_frame_ms = board_millis();
+        released = false;
+        g_frames_live = true;
+        diag_frames++;
+    }
+#if defined(KEYBOARD_MODE) || defined(COMPOSITE_MODE)
+    else if (type == SV_PKT_TEXT) {
+        uint8_t len = b[SV_OFF_LENGTH];
+        if (len > SV_TEXT_MAX) len = SV_TEXT_MAX;
+        for (uint8_t i = 0; i < len; i++) kbd_queue_char((char)b[SV_OFF_TEXT + i]);
+    }
+#endif
+    /* SV_PKT_PING / SV_PKT_MOUSE: not handled here yet */
 }
 
 static void release_all(void) {
@@ -548,7 +590,19 @@ void core1_main(void) {
         pio_usb_device_task();
         g_dbg.c1_stage = 11;
 #ifdef NATIVE_PAD
-        {
+        if (pio_usb_set_report_buf[0] == SV_MAGIC0 &&
+            pio_usb_set_report_buf[1] == SV_MAGIC1) {
+            /* SwitchView packet; our link is polled, so detect a new one via the
+             * trailing sequence byte the sender rolls each packet. */
+            static uint8_t sv_last_seq = 0xFF;
+            uint8_t seq = pio_usb_set_report_buf[SV_SEQ_OFFSET];
+            if (seq != sv_last_seq) {
+                sv_last_seq = seq;
+                g_dbg.c1_stage = 12;
+                handle_sv_packet(pio_usb_set_report_buf);
+                g_dbg.c1_stage = 13;
+            }
+        } else {
             static uint8_t last_seq = 0xFF;
             uint8_t f[9];
             for (int i = 0; i < 9; i++) {
